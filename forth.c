@@ -120,6 +120,7 @@ void eval(char *str) {
 
 int main() {
     stack = stack_bottom = calloc(STACK_SIZE, sizeof(intptr_t));
+    stack--;
     dict = calloc(1, sizeof(Hash));
 
     const int BUFFER_SIZE = 1024;
