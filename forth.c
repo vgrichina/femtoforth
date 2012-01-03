@@ -20,52 +20,47 @@ typedef enum {
     tt_Definition
 } TokenType;
 
-typedef struct {
-    TokenType type;
-    intptr_t value;
-} Token;
-
 #define logf(...) fprintf(stderr, __VA_ARGS__)
 
 #include "natives.c"
 
-void eval_tokens(Token *token) {
-    //logf("eval_tokens: %p %d %s\n", token, token->type, (char *) token->value);
+void eval_tokens(intptr_t *token) {
+    //logf("eval_tokens: %p\n", token);
 
-    for (; token->type != tt_None; token++) {
-        switch (token->type) {
+    for (; token[0] != tt_None; token += 2) {
+        switch (token[0]) {
         case tt_Native:
-            ((Native_f) token->value)(&token);
+            ((Native_f) token[1])(&token);
             break;
         case tt_Symbol: {
             //logf("symbol\n");
-            Token *def = hash_get(dict, (char *) token->value);
+            intptr_t *def = hash_get(dict, (char *) token[1]);
             if (def) {
-                eval_tokens(def + 2);
+                eval_tokens(def + 4);
                 break;
             } else {
-                //logf("%s\n", (char *) token->value);
+            //    logf("%s\n", (char *) token[1]);
             }
         }
         default:
             //logf("default\n");
-            *(++stack) = token->value;
+            *(++stack) = token[1];
         }
     }
 }
 
-void parse_token(char *str, Token *token) {
+void parse_token(char *str, intptr_t *token) {
     //logf("parse_token: %s\n", str);
 
     if (strcmp(str, ":") == 0 ) {
-        token->type = tt_Definition;
+        token[0] = tt_Definition;
         return;
     }
 
     for (int i = 0; i < sizeof(natives) / sizeof(natives[0]); i++) {
         if (strcmp(str, natives[i].name) == 0) {
-            token->type = tt_Native;
-            token->value = (intptr_t) natives[i].func;
+            token[0] = tt_Native;
+            token[1] = (intptr_t) natives[i].func;
             return;
         }
     }
@@ -77,26 +72,26 @@ void parse_token(char *str, Token *token) {
         s++;
     }
     if (is_num && s > str && *s != '-') {
-        token->type = tt_Int;
-        token->value = atoi(str);
+        token[0] = tt_Int;
+        token[1] = atoi(str);
         return;
     }
 
-    token->type = tt_Symbol;
-    token->value = (intptr_t) strdup(str);
+    token[0] = tt_Symbol;
+    token[1] = (intptr_t) strdup(str);
 }
 
-Token *parse(char *str) {
+intptr_t *parse(char *str) {
     //logf("parse: %s\n", str);
 
     int num_tokens = 128;
-    Token *tokens = calloc(num_tokens, sizeof(Token));
-    Token *current_token = tokens;
+    intptr_t *tokens = calloc(num_tokens, sizeof(intptr_t) * 2);
+    intptr_t *current_token = tokens;
     for (char *s = str; *s != 0; s++) {
         if (isspace(*s)) {
             *s = 0;
             parse_token(str, current_token);
-            current_token++;
+            current_token += 2;
             while (isspace(*++s));
             str = s;
         }
@@ -108,11 +103,11 @@ Token *parse(char *str) {
 void eval(char *str) {
     //logf("eval: %s\n", str);
 
-    Token *token = parse(str);
-    if (token->type == tt_Definition) {
-        assert(token[1].type = tt_Symbol);
-        assert(token[2].type != tt_None);
-        hash_set(dict, (char *) token[1].value, token);
+    intptr_t *token = parse(str);
+    if (token[0] == tt_Definition) {
+        assert(token[2] = tt_Symbol);
+        assert(token[4] != tt_None);
+        hash_set(dict, (char *) token[3], token);
     } else {
         eval_tokens(token);
     }

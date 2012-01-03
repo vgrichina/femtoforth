@@ -1,8 +1,8 @@
-typedef void (*Native_f)(Token **token);
+typedef void (*Native_f)(intptr_t **token);
 
 // Nucleus
 
-#define binary_op(name, op) void name(Token **token) { stack[-1] = stack[-1] op stack[0]; stack -= 1; }
+#define binary_op(name, op) void name(intptr_t **token) { stack[-1] = stack[-1] op stack[0]; stack -= 1; }
 
 binary_op(plus, +);
 binary_op(minus, -);
@@ -16,7 +16,7 @@ binary_op(and, &);
 binary_op(or, |);
 binary_op(xor, ^);
 
-#define binary_op_with_const(name, op, c) void name(Token **token) { *stack = *stack op c; }
+#define binary_op_with_const(name, op, c) void name(intptr_t **token) { *stack = *stack op c; }
 
 binary_op_with_const(zero_less, <, 0);
 binary_op_with_const(zero_equal, ==, 0);
@@ -27,56 +27,56 @@ binary_op_with_const(two_plus, +, 2);
 binary_op_with_const(two_minus, -, 2);
 binary_op_with_const(two_divide, /, 2);
 
-void plus_store(Token **token) {
+void plus_store(intptr_t **token) {
     *((int *) stack[0]) = *((int *) stack[0]) + stack[-1];
     stack -= 2;
 }
 
-void divide_mod(Token **token) {
+void divide_mod(intptr_t **token) {
     ldiv_t result = ldiv(stack[-1], stack[0]);
     stack[-1] = result.rem;
     stack[0] = result.quot;
 }
 
-void times_divide(Token **token) {
+void times_divide(intptr_t **token) {
     stack[-2] = stack[-2] * stack[-1] / stack[0];
     stack -= 2;
 }
 
-void times_divide_mod(Token **token) {
+void times_divide_mod(intptr_t **token) {
     ldiv_t result = ldiv(stack[-2] * stack[-1], stack[0]);
     stack[-2] = result.rem;
     stack[-1] = result.quot;
     stack -= 1;
 }
 
-void abs_(Token **token) {
+void abs_(intptr_t **token) {
     *stack = abs(*stack);
 }
 
-void not(Token **token) {
-    *stack = ~*stack; // TODO: Check
+void not(intptr_t **token) {
+    *stack = !*stack; // TODO: Check
 }
 
-void store(Token **token) {
+void store(intptr_t **token) {
     *((int *) stack[0]) = stack[-1];
     stack -= 2;
 }
 
-void fetch(Token **token) {
+void fetch(intptr_t **token) {
     *stack = *((int *) *stack);
 }
 
-void c_store(Token **token) {
+void c_store(intptr_t **token) {
     *((char *) stack[0]) = stack[-1];
     stack -= 2;
 }
 
-void c_fetch(Token **token) {
+void c_fetch(intptr_t **token) {
     *stack = *((char *) *stack);
 }
 
-void cmove(Token **token) {
+void cmove(intptr_t **token) {
     char *dst = (char *) stack[-1];
     char *src = (char *) stack[-2];
     char *end = (char *) dst + stack[0];
@@ -85,7 +85,7 @@ void cmove(Token **token) {
     }
 }
 
-void cmove_up(Token **token) {
+void cmove_up(intptr_t **token) {
     char *dst = (char *) stack[-1] + stack[0] - 1;
     char *src = (char *) stack[-2] + stack[0] - 1;
     char *end = (char *) stack[-1];
@@ -94,35 +94,35 @@ void cmove_up(Token **token) {
     }
 }
 
-void count(Token **token) {
+void count(intptr_t **token) {
     *stack = *stack + sizeof(int);
     stack++;
     *stack = *((int *) *stack);
 }
 
-void fill(Token **token) {
+void fill(intptr_t **token) {
     memset((void *) stack[-2], stack[-1], stack[0]);
 }
 
-void dup(Token **token) {
+void dup(intptr_t **token) {
     *(++stack) = *stack;
 }
 
-void question_dup(Token **token) {
+void question_dup(intptr_t **token) {
     if (*stack) {
         dup(token);
     }
 }
 
-void depth(Token **token) {
+void depth(intptr_t **token) {
     *(++stack) = (stack - stack_bottom + 1);
 }
 
-void drop(Token **token) {
+void drop(intptr_t **token) {
     stack--;
 }
 
-void roll(Token **token) {
+void roll(intptr_t **token) {
     int n = stack[0];
     stack--;
     intptr_t value = stack[-n];
@@ -132,48 +132,48 @@ void roll(Token **token) {
     stack[0] = value;
 }
 
-void rot(Token **token) {
+void rot(intptr_t **token) {
     *(++stack) = 2;
     roll(token);
 }
 
-void swap(Token **token) {
+void swap(intptr_t **token) {
     intptr_t tmp = stack[0];
     stack[0] = stack[-1];
     stack[-1] = tmp;
 }
 
 // TODO:
-void to_r(Token **token) { }
-void from_r(Token **token) { }
-void r_fetch(Token **token) { }
+void to_r(intptr_t **token) { }
+void from_r(intptr_t **token) { }
+void r_fetch(intptr_t **token) { }
 
 
 // Additional
 
-void branch(Token **token) {
-    *token += (*token)[1].value + 1;
+void branch(intptr_t **token) {
+    *token += ((*token)[3] + 1) * 2;
 }
 
-void branch_cond(Token **token) {
+void branch_cond(intptr_t **token) {
     if (*stack--) {
-        *token += (*token)[1].value + 1;
+        *token += ((*token)[3] + 1) * 2;
     } else {
-        *token = *token + 1;
+        *token = *token + 2;
     }
 }
 
-void dot_s(Token **token) {
+void dot_s(intptr_t **token) {
     for (intptr_t *s = stack_bottom; s <= stack; s++) {
         printf("%d ", (int) *s);
     }
 }
 
-void dot_d(Token **token) {
+void dot_d(intptr_t **token) {
     printf("%d ", (int) *stack--);
 }
 
-void dot(Token **token) {
+void dot(intptr_t **token) {
     printf("%s ", (char *) *stack--);
 }
 
