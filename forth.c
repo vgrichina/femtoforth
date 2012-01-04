@@ -9,6 +9,11 @@
 const int STACK_SIZE = 1024;
 intptr_t *stack_bottom;
 intptr_t *stack;
+intptr_t *old_stack;
+intptr_t *return_stack_bottom;
+intptr_t *return_stack;
+
+int is_compile_mode = 0;
 
 Hash* dict;
 
@@ -27,23 +32,49 @@ typedef enum {
 void eval_tokens(intptr_t *token) {
     //logf("eval_tokens: %p\n", token);
 
+    //printf("eval_tokens\n");
+
     for (; token[0] != tt_None; token += 2) {
+        assert(token[0] != tt_None);
+
+        //printf("token: %d %d\n", (int) token[0], (int) token[1]);
+
         switch (token[0]) {
-        case tt_Native:
-            ((Native_f) token[1])(&token);
+        case tt_Native: {
+            Native_f func = ((Native_f) token[1]);
+            if (!is_compile_mode || is_compile_native(func)) {
+                func(&token);
+            } else {
+                *(++stack) = token[0];
+                *(++stack) = token[1];
+            }
             break;
+        }
         case tt_Symbol: {
             //logf("symbol\n");
-            intptr_t *def = hash_get(dict, (char *) token[1]);
+            char *word = (char *) token[1];
+            intptr_t *def = hash_get(dict, word);
             if (def) {
-                eval_tokens(def + 4);
-                break;
+                //printf("def: %s\n", word);
+                if (!is_compile_mode) {
+                    eval_tokens(def);
+                    break;
+                } else if (def[1] == (intptr_t) immediate) {
+                    is_compile_mode = 0;
+                    eval_tokens(def);
+                    is_compile_mode = 1;
+                    break;
+                }
             } else {
-            //    logf("%s\n", (char *) token[1]);
+                logf("Unknown word: %s\n", (char *) word);
+                break;
             }
         }
         default:
             //logf("default\n");
+            if (is_compile_mode) {
+                *(++stack) = token[0];
+            }
             *(++stack) = token[1];
         }
     }
@@ -77,8 +108,10 @@ void parse_token(char *str, intptr_t *token) {
         return;
     }
 
-    token[0] = tt_Symbol;
-    token[1] = (intptr_t) strdup(str);
+    if (str[0] != 0) {
+        token[0] = tt_Symbol;
+        token[1] = (intptr_t) strdup(str);
+    }
 }
 
 intptr_t *parse(char *str) {
@@ -107,7 +140,25 @@ void eval(char *str) {
     if (token[0] == tt_Definition) {
         assert(token[2] = tt_Symbol);
         assert(token[4] != tt_None);
-        hash_set(dict, (char *) token[3], token);
+
+        is_compile_mode = 1;
+        old_stack = stack;
+        eval_tokens(&token[4]);
+
+        intptr_t *new_token = calloc(stack - old_stack + 1, sizeof(intptr_t));
+        memcpy(new_token, old_stack + 1, (stack - old_stack) * sizeof(intptr_t));
+
+        hash_set(dict, (char *) token[3], new_token);
+
+        printf("compiled: %s ", (char *) token[3]);
+        dot_cs(NULL);
+        printf("\n");
+        /*for (intptr_t *t = new_token; t[0] != 0; t += 2) {
+            printf("%d %d\n", (int) t[0], (int) t[1]);
+        }*/
+
+        stack = old_stack;
+        is_compile_mode = 0;
     } else {
         eval_tokens(token);
     }
@@ -116,10 +167,18 @@ void eval(char *str) {
 int main() {
     stack = stack_bottom = calloc(STACK_SIZE, sizeof(intptr_t));
     stack--;
+    return_stack = return_stack_bottom = calloc(STACK_SIZE, sizeof(intptr_t));
+    return_stack--;
     dict = calloc(1, sizeof(Hash));
 
     const int BUFFER_SIZE = 1024;
     char str[BUFFER_SIZE];
+
+    FILE *forth = fopen("forth.fs", "r");
+
+    while(fgets(str, BUFFER_SIZE, forth)) {
+        eval(str);
+    }
 
     while(fgets(str, BUFFER_SIZE, stdin)) {
         eval(str);

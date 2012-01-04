@@ -1,2 +1,2 @@
 forth(forth.c):
-	clang forth.c -o forth
+	clang -g -O0 forth.c -o forth

@@ -28,7 +28,7 @@ binary_op_with_const(two_minus, -, 2);
 binary_op_with_const(two_divide, /, 2);
 
 void plus_store(intptr_t **token) {
-    *((int *) stack[0]) = *((int *) stack[0]) + stack[-1];
+    *((intptr_t *) stack[0]) = *((intptr_t *) stack[0]) + stack[-1];
     stack -= 2;
 }
 
@@ -59,12 +59,12 @@ void not(intptr_t **token) {
 }
 
 void store(intptr_t **token) {
-    *((int *) stack[0]) = stack[-1];
+    *((intptr_t *) stack[0]) = stack[-1];
     stack -= 2;
 }
 
 void fetch(intptr_t **token) {
-    *stack = *((int *) *stack);
+    *stack = *((intptr_t *) *stack);
 }
 
 void c_store(intptr_t **token) {
@@ -104,6 +104,10 @@ void fill(intptr_t **token) {
     memset((void *) stack[-2], stack[-1], stack[0]);
 }
 
+void sp0(intptr_t **token) {
+    *(++stack) = (intptr_t) stack_bottom;
+}
+
 void dup(intptr_t **token) {
     *(++stack) = *stack;
 }
@@ -120,6 +124,13 @@ void depth(intptr_t **token) {
 
 void drop(intptr_t **token) {
     stack--;
+}
+
+void pick_store(intptr_t **token) {
+    intptr_t value = stack[-1];
+    int n = stack[0];
+    stack -= 2;
+    stack[-n] = value;
 }
 
 void roll(intptr_t **token) {
@@ -143,13 +154,29 @@ void swap(intptr_t **token) {
     stack[-1] = tmp;
 }
 
-// TODO:
-void to_r(intptr_t **token) { }
-void from_r(intptr_t **token) { }
-void r_fetch(intptr_t **token) { }
+void to_r(intptr_t **token) {
+    *(++return_stack) = *stack--;
+}
 
+void from_r(intptr_t **token) {
+    *(++stack) = *return_stack--;
+}
+
+void r_fetch(intptr_t **token) {
+    *(++stack) = *return_stack;
+}
 
 // Additional
+
+void tick(intptr_t **token) {
+    *(++stack) = (*token)[2];
+    *(++stack) = (*token)[3];
+    *token += 2;
+}
+
+void emit(intptr_t **token) {
+    putc(*stack--, stdout);
+}
 
 void branch(intptr_t **token) {
     *token += ((*token)[3] + 1) * 2;
@@ -169,6 +196,28 @@ void dot_s(intptr_t **token) {
     }
 }
 
+char *get_native_name(Native_f func);
+
+void dot_cs(intptr_t **token) {
+    for (intptr_t *s = stack_bottom; s <= stack; s += 2) {
+        switch (s[0]) {
+        case tt_Int:
+            printf("%d ", (int) s[1]);
+            break;
+        case tt_Native:
+            printf("%s ", get_native_name((Native_f) s[1]));
+            break;
+        case tt_Symbol:
+            for (int i = 0; i < dict->count; i++) {
+                if (dict->values[i] == (void *) s[1]) {
+                    printf("%s ", dict->keys[i]);
+                }
+            }
+            break;
+        }
+    }
+}
+
 void dot_d(intptr_t **token) {
     printf("%d ", (int) *stack--);
 }
@@ -176,6 +225,41 @@ void dot_d(intptr_t **token) {
 void dot(intptr_t **token) {
     printf("%s ", (char *) *stack--);
 }
+
+
+// Compile words
+
+void left_bracket(intptr_t **token) {
+    if (is_compile_mode) {
+        is_compile_mode = 0;
+    }
+}
+
+void right_bracket(intptr_t **token) {
+    if (!is_compile_mode) {
+        is_compile_mode = 1;
+    }
+}
+
+void literal(intptr_t **token) {
+    stack++;
+    stack[0] = stack[-1];
+    stack[-1] = tt_Int;
+}
+
+void immediate(intptr_t **token) {
+    if (is_compile_mode) {
+        assert((stack - old_stack) % 2 == 0);
+        for (intptr_t *s = stack; s > old_stack; s -= 2) {
+            s[1] = s[-1];
+            s[2] = s[0];
+        }
+        old_stack[1] = tt_Native;
+        old_stack[2] = (intptr_t) immediate;
+        stack += 2;
+    }
+}
+
 
 struct {
     char *name;
@@ -220,19 +304,25 @@ struct {
     { "count", count },
     { "fill", fill },
 
+    { "sp0", sp0 },
     { "dup", dup },
     { "?dup", question_dup },
     { "depth", depth },
     { "drop", drop },
+    { "pick!", pick_store }, // Non-standard
     { "roll", roll },
     { "rot", rot},
     { "swap", swap},
+
+    { "'", tick },
+    { "emit", emit },
 
     { "branch", branch },
     { "branch?", branch_cond },
     { ".d", dot_d },
     { ".s", dot_s },
-    { ".", dot }
+    { ".cs", dot_cs },
+    { ".", dot },
 
 
     //    !  *  */  */MOD  +  +!  -  /  /MOD  0<  0=  0>  1+  1-  2+
@@ -240,4 +330,33 @@ struct {
     //           CMOVE>  COUNT  D+  D<  DEPTH  DNEGATE  DROP  DUP  EXECUTE
     //           EXIT  FILL  I  J  MAX  MIN  MOD  NEGATE  NOT  OR  OVER  PICK
     //           R>  R@  ROLL  ROT  SWAP  U<  UM*  UM/MOD  XOR
+
+
+    // Compile words
+    { "[", left_bracket },
+    { "]", right_bracket },
+    { "literal", literal },
+    { "immediate", immediate }
 };
+
+Native_f compile_natives[] = { left_bracket, right_bracket, literal, immediate };
+
+int is_compile_native(Native_f func) {
+    for (int i = 0; i < sizeof(compile_natives) / sizeof(Native_f); i++) {
+        if (compile_natives[i] == func) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+char *get_native_name(Native_f func) {
+    for (int i = 0; i < sizeof(natives) / sizeof(natives[0]); i++) {
+        if (natives[i].func == func) {
+            return natives[i].name;
+        }
+    }
+
+    return NULL;
+}
